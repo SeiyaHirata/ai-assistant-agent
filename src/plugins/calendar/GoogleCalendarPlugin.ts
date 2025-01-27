@@ -2,9 +2,19 @@ import { CalendarPlugin, AssistantIntent, PluginResponse, TimeSlot } from '@/typ
 import { google } from 'googleapis';
 import { OAuth2Client } from 'google-auth-library';
 
+interface AvailableTimeSlot {
+  start: Date;
+  end: Date;
+  duration: number; // in minutes
+}
+
 export class GoogleCalendarPlugin extends CalendarPlugin {
   private calendar: any;
   private auth: OAuth2Client;
+  private workingHours = {
+    start: 9, // 9:00 AM
+    end: 18,  // 6:00 PM
+  };
 
   constructor(auth: OAuth2Client) {
     super(
@@ -26,6 +36,10 @@ export class GoogleCalendarPlugin extends CalendarPlugin {
         return await this.checkAvailability(intent.parameters as TimeSlot);
       case 'list_events':
         return await this.getEvents(intent.parameters as { start: Date; end: Date });
+      case 'find_available_slots':
+        return await this.findAvailableTimeSlots(
+          intent.parameters as { start: Date; end: Date; duration: number }
+        );
       default:
         return {
           success: false,
@@ -35,7 +49,7 @@ export class GoogleCalendarPlugin extends CalendarPlugin {
     }
   }
 
-  async getEvents(timeRange: { start: Date; end: Date }): Promise<any[]> {
+  async getEvents(timeRange: { start: Date; end: Date }): Promise<PluginResponse> {
     try {
       const response = await this.calendar.events.list({
         calendarId: 'primary',
@@ -50,7 +64,7 @@ export class GoogleCalendarPlugin extends CalendarPlugin {
         data: response.data.items,
         message: 'Events retrieved successfully'
       };
-    } catch (error) {
+    } catch (error: any) {
       return {
         success: false,
         data: null,
@@ -59,7 +73,7 @@ export class GoogleCalendarPlugin extends CalendarPlugin {
     }
   }
 
-  async checkAvailability(timeSlot: TimeSlot): Promise<boolean> {
+  async checkAvailability(timeSlot: TimeSlot): Promise<PluginResponse> {
     try {
       const events = await this.calendar.events.list({
         calendarId: 'primary',
@@ -83,7 +97,7 @@ export class GoogleCalendarPlugin extends CalendarPlugin {
         data: !hasConflicts,
         message: hasConflicts ? 'Time slot is not available' : 'Time slot is available'
       };
-    } catch (error) {
+    } catch (error: any) {
       return {
         success: false,
         data: null,
@@ -92,7 +106,62 @@ export class GoogleCalendarPlugin extends CalendarPlugin {
     }
   }
 
-  async createEvent(event: any): Promise<any> {
+  async findAvailableTimeSlots(params: {
+    start: Date;
+    end: Date;
+    duration: number;
+  }): Promise<PluginResponse> {
+    try {
+      const { start, end, duration } = params;
+      const events = await this.getEvents({ start, end });
+      
+      if (!events.success) {
+        throw new Error('Failed to retrieve events');
+      }
+
+      const availableSlots: AvailableTimeSlot[] = [];
+      let currentDate = new Date(start);
+      
+      while (currentDate < end) {
+        // Only check during working hours
+        if (currentDate.getHours() >= this.workingHours.start && 
+            currentDate.getHours() < this.workingHours.end) {
+          
+          const slotEnd = new Date(currentDate.getTime() + duration * 60000);
+          
+          const availability = await this.checkAvailability({
+            start: currentDate,
+            end: slotEnd
+          });
+
+          if (availability.success && availability.data === true) {
+            availableSlots.push({
+              start: new Date(currentDate),
+              end: slotEnd,
+              duration
+            });
+          }
+        }
+
+        // Move to next 30-minute slot
+        currentDate = new Date(currentDate.getTime() + 30 * 60000);
+      }
+
+      return {
+        success: true,
+        data: availableSlots,
+        message: `Found ${availableSlots.length} available time slots`
+      };
+    } catch (error: any) {
+      return {
+        success: false,
+        data: null,
+        message: `Failed to find available time slots: ${error.message}`
+      };
+    }
+  }
+
+  async createEvent(event: any): Promise<PluginResponse> {
     try {
       const response = await this.calendar.events.insert({
         calendarId: 'primary',
@@ -104,7 +173,7 @@ export class GoogleCalendarPlugin extends CalendarPlugin {
         data: response.data,
         message: 'Event created successfully'
       };
-    } catch (error) {
+    } catch (error: any) {
       return {
         success: false,
         data: null,
@@ -112,4 +181,5 @@ export class GoogleCalendarPlugin extends CalendarPlugin {
       };
     }
   }
+}
 }

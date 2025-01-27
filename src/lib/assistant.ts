@@ -74,6 +74,30 @@ export class AIAssistant {
             required: ["startTime", "endTime"]
           }
         }
+      }, {
+        type: "function",
+        function: {
+          name: "findAvailableSlots",
+          description: "Find available time slots within a date range",
+          parameters: {
+            type: "object",
+            properties: {
+              startTime: {
+                type: "string",
+                description: "Start time in ISO format"
+              },
+              endTime: {
+                type: "string",
+                description: "End time in ISO format"
+              },
+              duration: {
+                type: "number",
+                description: "Duration in minutes"
+              }
+            },
+            required: ["startTime", "endTime", "duration"]
+          }
+        }
       }]
     });
 
